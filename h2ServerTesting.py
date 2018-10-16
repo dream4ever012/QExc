@@ -14,6 +14,8 @@ from collections import defaultdict as defaultdict
 from itertools import compress
 import H2SerConn as h2SerConn
 
+
+####
 ###### create statement for normal tables and TMs
 ### read csv file and dynamically reads column names and
 ### applies one and half of max length of column values to variable length
