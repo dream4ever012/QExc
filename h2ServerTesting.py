@@ -14,15 +14,16 @@ from collections import defaultdict as defaultdict
 from itertools import compress
 import H2SerConn as h2SerConn
 
-
+####
 ####
 ###### create statement for normal tables and TMs
 ### read csv file and dynamically reads column names and
 ### applies one and half of max length of column values to variable length
 ### creating TM is for two variables and then adds primary key 
 import getCreateTblStmt as gSTS
-
 gsts_ins = gSTS.getCreateTblStmt()
+
+#def prepCreateStmt():
 createStmtA = gsts_ins.createTableStmt("A.csv")
 createStmtB = gsts_ins.createTableStmt("B.csv")
 createStmtC = gsts_ins.createTableStmt("C.csv")
@@ -199,18 +200,15 @@ def findEles(list1, argv): return sum([findEle(w,list1) for w in argv]) == len(a
 ### matching table names with the join keys
 def findElesLol(lol_joinKs, lol_tblNs): return [[findEles(list1, listTblNfor) for listTblNfor in lol_tblNs] for list1 in lol_joinKs]
 
-def findJoinKeyNs(lol_joinKs, lol_tblNs, joinSeq): 
-    if len(joinSeq) > 1:
-        a = [any(ele.startswith(joinSeq[0] + ".") for ele in lst) for lst in lol_joinKs]
-        b = [any(ele.startswith(joinSeq[1] + ".") for ele in lst) for lst in lol_joinKs]
-        t = [True if ((tf1 + tf2 == 2) and (l_joinKs[0] != l_joinKs[1])) else False for tf1, tf2, l_joinKs in zip(a, b, lol_joinKs)]
-        if len(list(compress(xrange(len(t)), t))) > 0:
-            print lol_joinKs
-            print t
-            return lol_joinKs[list(compress(xrange(len(t)), t))[0]]
-        else: return None
-    else: 
-        return None
+def findJoinKey(join_dict, joinSeq0):
+    """ assumption: there is only one join key between any two table(or TM)"""
+    return join_dict[joinSeq0[0]].intersection(join_dict[joinSeq0[1]]).pop()
+
+def findJoinKeyNs(join_dict, joinSeq0):  
+    joinKey = findJoinKey(join_dict, joinSeq0)
+    return [joinSeq0[0]+"."+joinKey, joinSeq0[1]+"."+joinKey]
+    
+
 #def findJoinKeyNs(lol_joinKs, lol_tblNs, joinSeq11): return lol_joinKs[[list(compress(xrange(len(t)), t))[0] for t in findElesLol(lol_joinKs, lol_tblNs)][lol_tblNs.index([joinSeq11[0], joinSeq11[1]])]]
 
 #findJoinKeyNs(theRest_splt6, theRest_splt5, joinSeq)   
@@ -221,79 +219,84 @@ lol_joinKs = [['BAACCAAD.BID', 'AAAB.BID'], ['BAACCAAD.CID', 'BAACCAAD.CID']]
 t = [False, False]
 k = list(compress(xrange(len(t)), t))[0]
 """
+
+def initParamGet_js1(joinSeq):
+    if len(joinSeq) > 1:
+        """ join table name """
+        joinSeq0 = joinSeq[:2] ### this time of join #   
+        """ new table name """
+        newTblN = joinSeq0[0]+joinSeq0[1] ###########
+        return joinSeq0, newTblN
+    else:
+        print 'ERROR CODE: len(joinSeq) <= 1'
+        return joinSeq, 'XXXXX'
+
 ### for this version I would just work on INNER JOIN STATEMENT
+#### right way: need system catalog beforehand
 def initParamGet_(sql, joinSeq):
     sql_lst = sql.upper().split("FROM")
     select = sql_lst[0].upper().replace(",", "").rstrip().split(" ")[1:] # grab select stmt
-    select_lst_lst = []
-    for ele in select: select_lst_lst.append(ele.split("."))
-    #select_lst_lst =[['AAAB', 'AID'], ['AAAB', 'DID'], ['BAAC', 'BID'], ['CAAD', 'CID']]
+    sel_cols_list = ([tbl_col.split('.') for tbl_col in select])
+    
+    # next join seq and newtbl name
+    joinSeq0, newTblN = initParamGet_js1(joinSeq) 
+    
+    # tblN, colN in selection
     select_dict = defaultdict(set) #PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP
-    for list1 in select_lst_lst: select_dict[list1[0]].add(list1[1])
+    for list1 in sel_cols_list: select_dict[list1[0]].add(list1[1])
        
     theRest_splt = sql_lst[1].replace(";", "").replace("\n", "").split("INNER JOIN")[1:]
     theRest_splt2 = [ele.split("ON")[1] for ele in theRest_splt] # remove carriage return and 
     theRest_splt3 = [chk.rstrip().lstrip()  for ele in theRest_splt2 for chk in ele.split("=")]
-    #theRest_splt35 = [sorted(ele.split("=")) for ele in theRest_splt2]
-    theRest_splt6 = [[theRest_splt3[idx], theRest_splt3[idx+1]] for idx in range(0, len(theRest_splt3), 2)] ### select pred cols
-    theRest_splt4 = [tblCol.split(".")[0] for list1 in theRest_splt6 for tblCol in list1]
-    theRest_splt5 = [[theRest_splt4[idx], theRest_splt4[idx+1]] for idx in range(0, len(theRest_splt4), 2)]
-    
-    # join lst of lst
+
     join_lst_lst = []
     for ele in theRest_splt3: join_lst_lst.append(ele.split("."))
     join_dict = defaultdict(set)
     for lst in join_lst_lst: join_dict[lst[0]].add(lst[1])
-    # => output join_dict
-    js_lst_lst = join_lst_lst + select_lst_lst
-    js_dict = defaultdict(set)
-    for list1 in js_lst_lst: js_dict[list1[0]].add(list1[1])
     ### find the select preds #####################################
-    joinKeyNs = findJoinKeyNs(theRest_splt6, theRest_splt5, joinSeq)
-    #theRest_splt6[[list(compress(xrange(len(t)), t))[0] for t in findElesLol(theRest_splt6, theRest_splt5)][theRest_splt5.index([joinSeq[0], joinSeq[1]])]]
+    
+    joinKeyNs = findJoinKeyNs(join_dict, joinSeq0)
         
-    return joinKeyNs, js_dict, theRest_splt5, theRest_splt6
+    return joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, newTblN
 
-sql  
-    
-def initParamGet_js1(joinSeq):
-    """ join table name """
-    joinSeq0 = joinSeq[:2] ### this time of join #   
-    """ new table name """
-    newTblN = joinSeq0[0]+joinSeq0[1] ###########
-    return joinSeq0, newTblN
 
-def initParamGet_js2(newTblN, joinSeq0):
-    #joinSeq =  [newTblN] + [tbl for tbl in joinSeq if tbl not in joinSeq0]
-    #joinSeq0 = joinSeq[:2]
-    print 'joinSeq0', joinSeq0
-    newTblN = newTblN + joinSeq0[1]
-    return newTblN
-    
 
-def prj_cols_stmt(js_dict, joinSeq0):
-    prj_tbls = js_dict.keys() ### 0) to check if the table appears
-    prj_tbls_this = [tbl for tbl in joinSeq0 if tbl in prj_tbls] ### projected tables of this time
-    js_dict.items()
     
-    js_dict_lst = [(val,key) for key in js_dict for val in js_dict[key]]
-    js_dict_swap = defaultdict(set)
-    for node1, node2 in [(val,key) for key in js_dict for val in js_dict[key]]: js_dict_swap[node1].add(node2)
-    temp = []
-    for k, v in js_dict_swap.items(): # col: {tbls}
-        if set(prj_tbls).issubset(v): temp.append((k, v))
-    #prj_cols_this = [prj_tbl +"."+ col for prj_tbl in prj_tbls_this for col in js_dict[prj_tbl]]
-    prj_cols_this = [prj_tbl +"."+ col for prj_tbl in prj_tbls for col in js_dict[prj_tbl]]
-    if len(temp) > 0: [prj_cols_this.remove(tbl +"."+ temp[0][0]) for tbl in list(prj_tbls_this)[1:]]
+def swapdict(dict1):
+    dict_swap = defaultdict(set)
+    for node1, node2 in [(val,key) for key in dict1 for val in dict1[key]]: dict_swap[node1].add(node2)
+    return dict_swap
+
+def prj_cols_stmt(join_dict, select_dict, joinSeq0):
+    # projected cols + join cols
+    prj_tbls = join_dict.keys() ### 0) to check if the table appears
+    prj_tbls_this = joinSeq0 #[tbl for tbl in joinSeq0 if tbl in prj_tbls] ### projected tables of this time
     
-    prj_cols_this_stmt = ""
-    for prj_col in prj_cols_this: prj_cols_this_stmt = prj_cols_this_stmt + prj_col + ", "
+    from operator import or_
+    join_cols = reduce(or_, [join_dict[tm] for tm in joinSeq0]) # cols necessary in this join
+    prj_cols = reduce(or_, [select_dict[tm] for tm in joinSeq0]) # cols projected 
+    #sel_cols = join_cols.union(prj_cols) # column names that should be in selection stmt in this phase of query
+    join_cols_prj = join_cols.difference(prj_cols)
+    
+    join_dict_swap = swapdict(join_dict)
+    sel_dict_swap = swapdict(select_dict)
+    
+    # projected tbl_name, col_name
+    prj_tbl_col_names = [(list(sel_dict_swap[prj_col].intersection(joinSeq0))[0], prj_col) for prj_col in prj_cols] + \
+    [(list(join_dict_swap[join_col].intersection(joinSeq0))[0], join_col) for join_col in join_cols_prj]
+    # + necessary tbl_name, col_name for join 
+    
+    prj_tbl_col_names =  [tbl + "." + col for tbl, col in prj_tbl_col_names]
+    
+    prj_tbl_col_stmt = ""
+    for prj_tbl_col in prj_tbl_col_names: prj_tbl_col_stmt = prj_tbl_col_stmt + prj_tbl_col + ", "
         ###################################
-    prj_cols_this_stmt = prj_cols_this_stmt[:-2]
+    prj_cols_this_stmt = prj_tbl_col_stmt[:-2]
     return prj_cols_this_stmt
 
 
 def buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs):
+    """ build SQL query of creating table of the intermediate join results """
     SQL = \
     """DROP TABLE {0} IF EXISTS;\
     CREATE TABLE {0} \
@@ -304,27 +307,88 @@ def buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs):
         ON {4} = {5}; """.format(newTblN, prj_cols_this_stmt,joinSeq0[0], joinSeq0[1], joinKeyNs[0], joinKeyNs[1])
     return SQL
 
-    
-def updateParam(joinKeyNs, joinSeq0, joinSeq, newTblN, js_dict, theRest_splt5, theRest_splt6):
-    theRest_splt5 = [[newTblN if (ele == joinSeq[0] or ele == joinSeq[1]) else ele for ele in lst] for lst in theRest_splt5]
-    theRest_splt6 = [[newTblN + ele[ele.find('.'):] if ele[:ele.find('.')] == joinSeq[0] else ele for ele in lst ] for lst in theRest_splt6]
-    theRest_splt6 = [[newTblN + ele[ele.find('.'):] if ele[:ele.find('.')] == joinSeq[1] else ele for ele in lst ] for lst in theRest_splt6]
-    if joinSeq>2:
-        joinKeyNs = findJoinKeyNs(theRest_splt6, theRest_splt5, ([newTblN]+joinSeq[2:]))
-    
-    for tbl in joinSeq0:
-        tbl_vs = js_dict[tbl]
-        for v in tbl_vs: js_dict[newTblN].add(v)
-        
-        
-    joinSeq  = [newTblN] + joinSeq[2:]
-    if len(joinSeq) > 2:
-        joinSeq0 = joinSeq[2:] ############
-        joinSeq0.insert(0,joinSeq[0]+joinSeq[1])
-    else: joinSeq0 = joinSeq
+def updateDict(dict11, tbl_names_this_join, newTblN):
+    tbl_names_this_join
+    dict1 = dict11
+    # insert new table
+    for tbl in tbl_names_this_join:
+        tbl_vs = dict1[tbl]
+        for v in tbl_vs: dict1[newTblN].add(v)
+    return dict1        
 
-    return joinKeyNs, js_dict, joinSeq0, joinSeq, theRest_splt5, theRest_splt6
 
+# this has to be with Query object to find the join key with the cheapest join key
+
+
+
+type(js_dict11)
+js_dict11 = js_dict
+
+def updateParam(joinSeq, join_dict, select_dict, newTblN):
+    # 1) nextjoin key  # 2) next join joinSeq # 3) update js_dict
+    # 4) update select_dict #### consider if len(joinSeq) ==2 == break
+    joinSeq0 = joinSeq[:2]    
+    join_dict = updateDict(join_dict, joinSeq0, newTblN)
+    select_dict = updateDict(select_dict, joinSeq0, newTblN)
+    # update joinSeq, this join (joinSeq0, newTblN)
+    joinSeq = [newTblN] + joinSeq[2:]
+    joinSeq0 = joinSeq[:2]
+    joinKeyNs = ''
+    newTblN = joinSeq[0] + joinSeq[1]
+    joinKeyNs = findJoinKeyNs(join_dict, joinSeq0)
+    return joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, newTblN
+
+def buildSQL(joinSeq= ['BAAC', 'CAAD', 'AAAB']):
+    joinSeq = [tblN.upper() for tblN in joinSeq] # uppercase all letters
+    SQL = []
+    #divide(test, joinSeq) # joinSeq
+    joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, newTblN = initParamGet_(sql, joinSeq)
+    select_dict_org = select_dict # keep copy just in case
+    join_dict_org = join_dict
+    
+    prj_cols_this_stmt = prj_cols_stmt(join_dict, select_dict, joinSeq0)
+    SQL.append(buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs))
+
+    while (len(joinSeq) > 2):
+        joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, newTblN = \
+        updateParam(joinSeq, join_dict, select_dict, newTblN)
+        prj_cols_this_stmt = prj_cols_stmt(join_dict, join_dict, joinSeq0)
+        SQL.append(buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs))
+    ###################################
+    return SQL
+
+def buildIdx_(indexName, tableName, colName):
+    """ index with indexName """
+    sql = "CREATE HASH IF NOT EXISTS {} INDEX ON {}({});".format(indexName, tableName, colName)
+    h2Server8094.runQuery(sql)
+    print 'Index created, {}.{}'.format(tableName, colName)
+
+def buildIdx(tableName, colName):
+    sql = "CREATE HASH INDEX ON {}({});".format(tableName, colName)
+    h2Server8094.runQuery(sql)
+    print 'Index created, {}.{}'.format(tableName, colName)
+
+""" build and index: system catalog """
+# table name
+#   col name
+# index catalog
+#   index reference
+
+""" OO of table import + """
+
+tic = time.time()
+h2Server8094.runQuery(SQL[0])
+toc = time.time()
+print toc - tic
+
+def timeSQLs(SQL):
+    timeLs = []
+    for sql in SQL:
+        tic = time.time()
+        h2Server8094.runQuery(sql)
+        toc = time.time()
+        timeLs.append(toc-tic)
+    return timeLs
 
 sql = """\
 SELECT AaaB.AID, BaaC.BID, CaaD.CID \
@@ -335,9 +399,34 @@ INNER JOIN CaaD \
 ON CaaD.CID = BaaC.CID;
 """
 joinSeq= ['BAAC', 'CAAD', 'AAAB']
+SQL1 = []
+SQL1 = buildSQL(joinSeq)
+timeLs1 = timeSQLs(SQL)
+timeLs1
+
+joinSeq= ['CAAD', 'BAAC', 'AAAB']
+SQL0 = []
+SQL0 = buildSQL(joinSeq)
+timeLs0 = timeSQLs(SQL)
+timeLs0
+
+
+joinSeq= ['BAAC', 'AAAB', 'CAAD']
+SQL2 = []
+SQL2 = buildSQL(joinSeq)
+timeLs2 = timeSQLs(SQL)
+timeLs2
+
+joinSeq= ['AAAB', 'BAAC', 'CAAD']
+SQL3 = []
+SQL3 = buildSQL(joinSeq)
+timeLs3 = timeSQLs(SQL)
+timeLs3
+
+
 
 sql = """\
-SELECT A.AID, B.BID, C.CID \
+SELECT A.AID, B.BID \
 FROM A \
 INNER JOIN AaaB \
 ON AaaB.AID =  A.AID \
@@ -345,6 +434,18 @@ INNER JOIN B \
 ON B.BID = AaaB.BID;
 """
 joinSeq= ['A', 'AAAB', 'B']
+SQL4 = []
+SQL4 = buildSQL(joinSeq)
+timeLs4 = timeSQLs(SQL)
+timeLs4
+
+joinSeq= ['AAAB', 'B', 'A']
+SQL5 = []
+SQL5 = buildSQL(joinSeq)
+timeLs5 = timeSQLs(SQL)
+timeLs5
+
+
 
 sql = """\
 SELECT A.AID, B.BID, C.CID \
@@ -358,29 +459,51 @@ ON BaaC.BID = B.BID \
 INNER JOIN C \
 ON C.CID = BaaC.CID;
 """
-joinSeq= ['A', 'AAAB', 'B', 'BaaC', 'C']
+joinSeq= ['A', 'AAAB', 'B', 'BAAC', 'C']
+SQL = []
+SQL = buildSQL(joinSeq)
 
-def run(joinSeq= ['BAAC', 'CAAD', 'AAAB']):
-    SQL = []
-    #divide(test, joinSeq) # joinSeq
-    joinKeyNs, js_dict, theRest_splt5, theRest_splt6 = initParamGet_(sql, joinSeq)
-    joinSeq0, newTblN = initParamGet_js1(joinSeq)  
-    prj_cols_this_stmt = prj_cols_stmt(js_dict, joinSeq0)
-    print  prj_cols_this_stmt
-    SQL.append(buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs))
+#idxDict = 
+
+
+""" predicates """
+sql = """\
+SELECT A.AID, B.BID, C.CID \
+FROM A \
+INNER JOIN AaaB \
+ON AaaB.AID =  A.AID \
+INNER JOIN B \
+ON B.BID = AaaB.BID \
+INNER JOIN BaaC \
+ON BaaC.BID = B.BID \
+INNER JOIN C \
+ON C.CID = BaaC.CID \
+WHERE A.AUTHOR = ;
+"""
+
+
+def buildTblColDict():
     
-    print 'len', len(joinSeq)
-    once = True
-    while (len(joinSeq) > 2 or once == True):
-        print 'len(joinSeq0)', len(joinSeq0)
-        joinKeyNs, js_dict, joinSeq0, joinSeq, theRest_splt5, theRest_splt6 = updateParam(joinKeyNs, joinSeq0, joinSeq, newTblN, js_dict, theRest_splt5, theRest_splt6)
-        if (len(joinSeq) > 2 or once == True):
-            newTblN = initParamGet_js2(newTblN, joinSeq0)
-            once = False        
-        prj_cols_this_stmt = prj_cols_stmt(js_dict, joinSeq0)
-        SQL.append(buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs))
-        ###################################
-    return SQL
+    
+
+
+
+
+"""SELECT 
+         AaaB.AID, BaaC.BID, CaaD.CID 
+   FROM AaaB 
+   INNER JOIN BaaC 
+        ON BaaC.BID = AaaB.BID 
+   INNER JOIN CaaD 
+        ON CaaD.CID = BaaC.CID;\n"""
+
+#1) join seq 1) BAAC CAAD == prj_cpls
+        
+
+
+for sql in SQL:
+    run
+
 
 ##### TO-DOs))
 """
@@ -401,8 +524,7 @@ def run(joinSeq= ['BAAC', 'CAAD', 'AAAB']):
 4) skip join for the sake of 
 """
 
-SQL = []
-SQL = run(joinSeq= ['AAAB', 'BaaC', 'CaaD'])
+
 
 SQL = []
 SQL = run(joinSeq= ['A', 'AAAB', 'B', 'BaaC', 'C'])
@@ -428,47 +550,6 @@ print res
 h2Server8094.runQuery("SELECT COUNT(*) FROM AAABBAACCAAD")
 res = h2Server8094.fetchone()
 print res
-
-
-
-joinSeq0, newTblN = initParamGet_js(joinSeq)    
-prj_cols_this_stmt = prj_cols_stmt(select_dict, joinSeq0)
-SQL = buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs)
-
-joinKeyNs, select_dict, joinSeq, theRest_splt5, theRest_splt6 = updateParam(joinKeyNs, joinSeq0, newTblN, select_dict, theRest_splt5, theRest_splt6, joinSeq)
-
-
-
-joinKeyNs, select_dict, theRest_splt5, theRest_splt6 = initParamGet_(sql)
-
-
-joinSeq0, newTblN = initParamGet_js(joinSeq)
-prj_cols_this_stmt = prj_cols_stmt(select_dict, joinSeq0)
-SQL = buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs)
-select_dict, joinSeq, theRest_splt5, theRest_splt6 = updateParam(joinKeyNs, joinSeq0, select_dict, theRest_splt5, theRest_splt6, joinSeq)
-
-
-
-### updates
-# select_dict = old name to new name 
-# now just adds
-for tbl in joinSeq0:
-    tbl_vs = select_dict[tbl]
-    for v in tbl_vs: select_dict[newTblN].add(v)
-
-# joinSeq
-joinSeq_nxt = joinSeq[2:]
-joinSeq_nxt.insert(0,joinSeq[0]+joinSeq[1])
-
-
-
-
-
-############################## PARAMETERS INHERIT
-select_dict['AAAB']
-select_dict[newTblN].add(select_dict[])
-
-
 
 
 
@@ -505,105 +586,6 @@ for list1 in theRest_splt35:
 
 
 
-
-
-[w in str1 for str1 in theRest_splt35[0] for w in (joinSeq[0],joinSeq[1])]
-
-[str1 for str1 in theRest_splt35[0] for w in (joinSeq[0],joinSeq[1])]
-
-findEles(theRest_splt35[0], joinSeq[0],joinSeq[1])
-
-any(joinSeq[0] in str1 in theRest_splt35[0])
-
-findEle(joinSeq[0], theRest_splt35[0])
-findEle(joinSeq[1], theRest_splt35[0])
-
-
-findEles(theRest_splt35, joinSeq[0], joinSeq[1])
-
-first = True
-
-theRest_splt5   ### join pair table names
-theRest_splt35  ### join key pair
-joinSeq  ### talbe names in join sequence
-joinSeq1 = joinSeq[2:]
-joinSeq1.insert(0,joinSeq[0]+joinSeq[1])
-joinSeq1 ### new table names in join sequence ### TO-DOs: update join pair table names and join key pair
-
-
-theRest_splt35[0]
-
-findEles(theRest_splt35, joinSeq[0], joinSeq[1])
-[ for list1 in theRest_splt35]
-
-print joinSeq[0], joinSeq[1]
-
-for k in theRest_splt5: #zip(theRest_splt5, theRest_splt35):
-    print k
-    
-('AAAB', 'BAAC')
-
-
-
-
-
-str1 = 'AAAB'
-list1 = theRest_splt35[0]
-any(True if str1 in ele else False for ele in list1)
-findEle('AAAB', theRest_splt35[0]) == True
-
-
-
-# 
-joinSeq[0], joinSeq[1]
-
-
-
-
-TABLE = joinSeq[0]+joinSeq[1]
-SELECT = 
-
-
-"""
-{0}:
-{1}:
-"""
-temp 
-join_seq = temp
-a = ["B", "A"]
-a.sort()
-tuple(a)
-a.sort()
-a
-k, v =zip(theRest_splt5, theRest_splt6)[0]
-k
-
-
-join_dict = collections.defaultdict(list)
-for k, v in zip(theRest_splt5, theRest_splt6):
-    print k, v
-    #join_dict[k] = v
-
-join_dict.keys()
-
-temp 
-for idx in range(0, len(temp), 2):
-
-
-for idx in range(0, len(theRest_splt4), 2):
-    print set([theRest_splt4[idx], theRest_splt4[idx+1]]), idx
-
-theRest_splt4[0]
-
-for idx in range(0, len(theRest_splt4), 2):
-    set([theRest_splt4[idx][0], theRest_splt4[idx+1][0]])
-
-
-[ele.split(".") for lst in [ele.split("=") for ele in theRest_splt2] for ele in lst]
-
-.rstrip().lstrip()
-
-### extract table name and col_name
 
 
 
