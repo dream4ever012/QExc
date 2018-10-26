@@ -14,6 +14,21 @@ from collections import defaultdict as defaultdict
 from itertools import compress
 import H2SerConn as h2SerConn
 
+
+"""
+query has to be structured
+ - select
+ - from
+ - Inner Join
+ - Where 
+   only AND is allowed for now 
+   
+predicate operator support only comparison operators (=, >, <, >=, <=, <>)
+and AND logical operator
+one predicate for one column
+https://www.w3schools.com/sql/sql_operators.asp
+  - 
+"""
 ####
 ####
 ###### create statement for normal tables and TMs
@@ -56,6 +71,7 @@ TO-DOs) not by priority
 ####################################
 """
 
+##### TO-DO) class that takes care of
 
 h2Server8094 = h2SerConn.H2SerConn("8094", "test", "", "", 
                  ip = socket.gethostbyname(socket.gethostname()))
@@ -231,10 +247,75 @@ def initParamGet_js1(joinSeq):
         print 'ERROR CODE: len(joinSeq) <= 1'
         return joinSeq, 'XXXXX'
 
+
+def get_compOp(string): # get comparison operator
+    A = string.find('=')
+    B = string.find('<')
+    C = string.find('>')
+    # identify operator
+    if A > 0: # can't be the firsr letter
+        if B < 0:
+            if C < 0 :
+                return "=" #string.split("=")
+            elif A - C == 1:
+                return ">="
+            else: print "ERROR: check if comparison operator: {}".format(string)
+        elif A - B == 1: # <=
+            return "<="
+        else:
+            return "ERROR: check if comparison operator: {}".format(string)
+    elif A < 0: # 
+        if C > 0:
+            if B < 0:
+                return ">"
+            elif C - B  == 1:
+                return "<>"
+            else:
+                return "ERROR: check if comparison operator: {}".format(string)
+        elif B > 0:
+            return "<"
+        else:
+            return "ERROR: check if comparison operator: {}".format(string)
+
+""" testing
+split_lgclOp("B.AUTHOR = 'Alex'")
+split_lgclOp("B.AUTHOR <= 'Alex'")
+split_lgclOp("B.AUTHOR => 'Alex'")
+split_lgclOp("B.AUTHOR >= 'Alex'")
+split_lgclOp("B.AUTHOR <> 'Alex'")
+"""
+
+
+def parsePred(pred):    
+    #input: pred stmt
+    # output: list of pred elements [tblN, colN, op, cond]
+    op = get_compOp(pred)
+    tblNcolNcond = [string.lstrip().rstrip().split(".") for string in pred.split(op)]
+    tblNcolNcond = [item for sublist in tblNcolNcond for item in sublist]
+    tblNcolNcond.insert(-1,op)
+    return tblNcolNcond
+
+
+
+"WHERE FAULTPRONE(CCPredicateTEMP.CLASSES) = 1;"
+
+[stmt.lstrip().rstrip() for stmt in sql_lst[1].replace(";", "").replace("\n", "").split("WHERE")]
+
+
+# how to represent predicate
+  # - tblN.colN can't be sufficient b/c there are multiple preds in a single col
+  # tblN.colN.opr.cond is sufficient
+
+A.AUTHOR = 'Caleb'
+
+where_stmt1 = """A.AUTHOR = 'Caleb' AND \
+B.AUTHOR = 'Alex' AND
+B.DD > 0;"""
+
 ### for this version I would just work on INNER JOIN STATEMENT
 #### right way: need system catalog beforehand
 def initParamGet_(sql, joinSeq):
-    sql_lst = sql.upper().split("FROM")
+    sql_lst = sql.split("FROM")
     select = sql_lst[0].upper().replace(",", "").rstrip().split(" ")[1:] # grab select stmt
     sel_cols_list = ([tbl_col.split('.') for tbl_col in select])
     
@@ -244,21 +325,33 @@ def initParamGet_(sql, joinSeq):
     # tblN, colN in selection
     select_dict = defaultdict(set) #PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP
     for list1 in sel_cols_list: select_dict[list1[0]].add(list1[1])
-       
-    theRest_splt = sql_lst[1].replace(";", "").replace("\n", "").split("INNER JOIN")[1:]
+    
+    # joins and preds
+    stmt_jNp = [stmt.lstrip().rstrip() for stmt in sql_lst[1].replace(";", "").replace("\n", "").split("WHERE")]
+    
+    theRest_splt = stmt_jNp[0].replace(";", "").replace("\n", "").split("INNER JOIN")[1:]
     theRest_splt2 = [ele.split("ON")[1] for ele in theRest_splt] # remove carriage return and 
     theRest_splt3 = [chk.rstrip().lstrip()  for ele in theRest_splt2 for chk in ele.split("=")]
-
+    
+    
     join_lst_lst = []
     for ele in theRest_splt3: join_lst_lst.append(ele.split("."))
     join_dict = defaultdict(set)
     for lst in join_lst_lst: join_dict[lst[0]].add(lst[1])
     ### find the select preds #####################################
     
+    #where_stmt = [chk.rstrip().lstrip() for chk in stmt_jNp[1].split("=")]
+    ### non-UDF preds    
+    preds = [stmt.lstrip().rstrip() for stmt in stmt_jNp[1].replace(";", "").replace("\n", "").split("AND")]
+    preds_lot = [tuple(parsePred(pred)) for pred in preds]
+    
+    nPredsDict = defaultdict(set)
+    for tup in preds_lot: nPredsDict[tup[0]].add(tup)
+  
+    ## UDF has to be fit for 
     joinKeyNs = findJoinKeyNs(join_dict, joinSeq0)
         
-    return joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, newTblN
-
+    return joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, nPredsDict, newTblN
 
 
     
@@ -275,6 +368,7 @@ def prj_cols_stmt(join_dict, select_dict, joinSeq0):
     from operator import or_
     join_cols = reduce(or_, [join_dict[tm] for tm in joinSeq0]) # cols necessary in this join
     prj_cols = reduce(or_, [select_dict[tm] for tm in joinSeq0]) # cols projected 
+
     #sel_cols = join_cols.union(prj_cols) # column names that should be in selection stmt in this phase of query
     join_cols_prj = join_cols.difference(prj_cols)
     
@@ -319,7 +413,12 @@ def updateDict(dict11, tbl_names_this_join, newTblN):
 
 # this has to be with Query object to find the join key with the cheapest join key
 
-
+def pred_stmt(nPredsDict, joinSeq0):
+    predIs = [key in joinSeq0 for key in nPredsDict.keys()]
+    
+    if nPredDict[]
+    
+    
 
 type(js_dict11)
 js_dict11 = js_dict
@@ -342,20 +441,25 @@ def buildSQL(joinSeq= ['BAAC', 'CAAD', 'AAAB']):
     joinSeq = [tblN.upper() for tblN in joinSeq] # uppercase all letters
     SQL = []
     #divide(test, joinSeq) # joinSeq
-    joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, newTblN = initParamGet_(sql, joinSeq)
+    joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, nPredsDict, newTblN = initParamGet_(sql, joinSeq)
     select_dict_org = select_dict # keep copy just in case
     join_dict_org = join_dict
     
     prj_cols_this_stmt = prj_cols_stmt(join_dict, select_dict, joinSeq0)
+    pred_this_stmt = pred_stmt(nPredsDict, joinSeq0)
     SQL.append(buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs))
 
     while (len(joinSeq) > 2):
         joinKeyNs, joinSeq0, joinSeq, join_dict, select_dict, newTblN = \
-        updateParam(joinSeq, join_dict, select_dict, newTblN)
-        prj_cols_this_stmt = prj_cols_stmt(join_dict, join_dict, joinSeq0)
+        updateParam(joinSeq, join_dict, select_dict, nPredsDict, newTblN) ###################### TO-DO) update nPredsDict
+        prj_cols_this_stmt = prj_cols_stmt(join_dict, select_dict, joinSeq0)
         SQL.append(buildNappendSQL(SQL, newTblN, prj_cols_this_stmt, joinSeq0, joinKeyNs))
     ###################################
     return SQL
+
+#### TO-DO) automatic table name and 
+    ###question: how to dynamically build index on the way
+    ### how to see if there is any index already built...
 
 def buildIdx_(indexName, tableName, colName):
     """ index with indexName """
@@ -478,11 +582,13 @@ INNER JOIN BaaC \
 ON BaaC.BID = B.BID \
 INNER JOIN C \
 ON C.CID = BaaC.CID \
-WHERE A.AUTHOR = ;
+WHERE A.AUTHOR = 'Caleb' AND \
+B.AUTHOR = 'Alex';
 """
+joinSeq= ['A', 'AAAB', 'B', 'BAAC', 'C']
 
 
-def buildTblColDict():
+
     
     
 
